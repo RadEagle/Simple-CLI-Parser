@@ -12,7 +12,7 @@ You will need to install the following libraries through NodeJS:
 ## Options
 There are other options than -t, Title. These are:
 * -t, --title <title>        The title of the task
-* -p, --priority <priority>  The priority of the task
+* -p, --priority <priority>  The priority of the task (high, medium, or low)
 * -d, --dueDate <dueDate>    The due date of the task
 * --json                     Output the result in JSON format (default: false)
 
