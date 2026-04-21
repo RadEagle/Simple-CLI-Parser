@@ -34,6 +34,21 @@ function shutdown(): void {
     process.exit(1);
 }
 
+function printEmptyError(errorMsg: string, json: boolean): void {
+    if (json) {
+        let jsonDict = {
+            ok: false,
+            error: errorMsg
+        }
+        console.error(JSON.stringify(jsonDict, null, 2));
+    }
+    else {
+        console.error(errorMsg);
+    }
+
+    shutdown();
+}
+
 // initialize postgres client
 if (!process.env.DATABASE_URL) {
     console.error("Missing Database URL");
@@ -54,12 +69,12 @@ const ListSchema = z.object({
 });
 
 const DoneSchema = z.object({
-   id: z.string().trim().min(1),
+    id: z.coerce.bigint().positive(),
 });
 
 const DeleteSchema = z.object({
-    id: z.string().trim().min(1),
- });
+    id: z.coerce.bigint().positive(),
+});
 
 // create a new command
 const program = new Command();
@@ -117,8 +132,7 @@ program
 
         // Output result
         if (!row) {
-            console.error("Row is empty");
-            shutdown();
+            printEmptyError("Row is empty", json);
             return;
         }
 
@@ -205,9 +219,8 @@ program
 program
     .command("done <id>")
     .description("Marks a todo item to done")
-    .action(async (options, cmd) => {
+    .action(async (id: string, options, cmd) => {
         // Parse arguments
-        const { id } = options;
         const { json } = cmd.optsWithGlobals();
         const result = DoneSchema.safeParse({ id });
 
@@ -218,18 +231,46 @@ program
 
         const task = result.data;
 
-        // DELETE with PostgreSQL
+        // UPDATE with PostgreSQL
+        let contents;
+        try {
+            contents = await sql `
+                UPDATE todos
+                SET done = true
+                WHERE id = ${task.id.toString()}
+                RETURNING id, title, priority, due_date, done, created_at
+            `
+
+        } catch (error) {
+            console.error(error);
+            shutdown();
+            return;
+        }
 
         // Output result
+        if (!contents.length) {
+            printEmptyError(`No data with ID ${task.id.toString()} exists`, json);
+            return;
+        }
+
+        if (json) {
+            let jsonDict = {
+                ok: true,
+                todo: contents[0]
+            }
+            console.log(JSON.stringify(jsonDict, null, 2));
+            return;
+        }
+
+        console.log(`Marked todo #${contents[0].id} as Done`)
     });
 
 // --delete [id] - deletes a todo item
 program
     .command("delete <id>")
     .description("Deletes a todo item")
-    .action(async (options, cmd) => {
+    .action(async (id, options, cmd) => {
         // Parse arguments
-        const { id } = options;
         const { json } = cmd.optsWithGlobals();
         const result = DeleteSchema.safeParse({ id });
 
@@ -240,9 +281,37 @@ program
 
         const task = result.data;
 
-        // SELECT with PostgreSQL
+        // DELETE with PostgreSQL
+        let contents;
+        try {
+            contents = await sql `
+                DELETE FROM todos
+                WHERE id = ${task.id.toString()}
+                RETURNING id
+            `
+
+        } catch (error) {
+            console.error(error);
+            shutdown();
+            return;
+        }
 
         // Output result
+        if (!contents.length) {
+            printEmptyError(`No data with ID ${task.id.toString()} exists`, json);
+            return;
+        }
+
+        if (json) {
+            let jsonDict = {
+                ok: true,
+                todo: contents[0]
+            }
+            console.log(JSON.stringify(jsonDict, null, 2));
+            return;
+        }
+
+        console.log(`Deleted todo #${contents[0].id}`)
     });
 
 await program.parseAsync(process.argv);
