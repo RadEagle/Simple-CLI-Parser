@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "bash tsrun.sh cli-parser.ts"
+    "start": "bash tsrun.sh cli-parser.ts",
+    "crud": "bash tsrun.sh crud-parser.ts"
   },
   "keywords": [],
   "author": "",
