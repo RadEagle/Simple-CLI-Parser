@@ -49,6 +49,29 @@ function printEmptyError(errorMsg: string, json: boolean): void {
     shutdown();
 }
 
+// vibe-coded helper functions
+/** Plain YYYY-MM-DD is UTC midnight in Date(string); use local calendar day instead. */
+function parseOptionalLocalDate(value: unknown): unknown {
+    if (value === undefined || value === null || value === "") {
+        return undefined;
+    }
+    if (value instanceof Date) {
+        return value;
+    }
+    const s = String(value).trim();
+    if (!s) {
+        return undefined;
+    }
+    const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    if (ymd) {
+        const y = Number(ymd[1]);
+        const m = Number(ymd[2]) - 1;
+        const d = Number(ymd[3]);
+        return new Date(y, m, d);
+    }
+    return new Date(s);
+}
+
 // initialize postgres client
 if (!process.env.DATABASE_URL) {
     console.error("Missing Database URL");
@@ -61,7 +84,7 @@ const sql = postgres(process.env.DATABASE_URL!, { max: 1 })
 const NewSchema = z.object({
     title: z.string().trim().min(1),
     priority: z.enum(["low", "medium", "high"]).default("medium"),
-    dueDate: z.coerce.date().optional(),
+    dueDate: z.preprocess(parseOptionalLocalDate, z.coerce.date().optional()),
 });
 
 const ListSchema = z.object({
@@ -147,7 +170,9 @@ program
 
         let outputStr = `Adding task #${row.id}: ${row.title} with priority ${row.priority}`;
         if (row.due_date) {
-            outputStr += ` and due date ${row.due_date.toLocaleDateString("en-CA")}`;
+            // The driver represents a SQL DATE as an instant at 00:00 UTC on that date, which is the previous local calendar day in US timezones.
+            // Use UTC when formatting so we show the stored civil date, not the shifted local instant.
+            outputStr += ` and due date ${row.due_date.toLocaleDateString("en-CA", { timeZone: "UTC" })}`;
         }
 
         console.log(outputStr);
@@ -314,5 +339,21 @@ program
         console.log(`Deleted todo #${contents[0].id}`)
     });
 
-await program.parseAsync(process.argv);
+
+// Run the program. Override the exit code to 2 if CLI is misused.
+program.exitOverride();
+
+try {
+    await program.parseAsync(process.argv);
+}
+catch (error) {
+    if (error instanceof CommanderError) {
+        if (error.code === "commander.helpDisplayed") {
+            process.exit(0);
+        }
+        process.exit(2);
+    }
+    throw error;
+}
+
 await sql.end();
